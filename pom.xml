@@ -1,0 +1,242 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        This module is a standalone sibling of gym-crm and trainer-workload-service, NOT a reactor
+        child of either (and there is no root aggregator pom in this repo, so it isn't a reactor
+        child of that either). It depends on the two services' *plain* built jars as regular Maven
+        dependencies, the same way any other consumer of those libraries would.
+
+        Build order matters: `mvn install` must be run in gym-crm/ and trainer-workload-service/
+        BEFORE running this module, so their jars exist in the local repository (~/.m2). From the
+        Epam/ directory:
+
+            mvn -f gym-crm/pom.xml install -DskipTests
+            mvn -f trainer-workload-service/pom.xml install -DskipTests
+            mvn -f integration-tests/pom.xml verify
+
+        Both of those poms' spring-boot-maven-plugin configuration was given a classifier="exec" so
+        that `install` keeps installing the plain (unpacked-classes) jar as the main artifact -
+        which is what a normal Maven dependency needs - while still producing the runnable
+        Spring Boot fat jar alongside it (gym-crm-1.0.0-exec.jar /
+        trainer-workload-service-0.0.1-SNAPSHOT-exec.jar). Without that classifier, the main
+        artifact left behind by `install` would be the repackaged fat jar, whose application
+        classes live nested under BOOT-INF/classes and are not visible to a normal
+        <dependency> classpath.
+    -->
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.gym</groupId>
+    <artifactId>integration-tests</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>integration-tests</name>
+    <description>
+        Cucumber integration tests covering the real (non-mocked) JMS integration between gym-crm
+        and trainer-workload-service via the ActiveMQ "workload.events.queue" queue.
+    </description>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.install.skip>true</maven.install.skip>
+        <maven.deploy.skip>true</maven.deploy.skip>
+
+        <spring-cloud.version>2023.0.3</spring-cloud.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
+        <cucumber.version>7.18.1</cucumber.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <awaitility.version>4.2.2</awaitility.version>
+
+        <gym-crm.version>1.0.0</gym-crm.version>
+        <trainer-workload-service.version>0.0.1-SNAPSHOT</trainer-workload-service.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--  The two services under test, as plain library dependencies (see the module-level
+                     comment above about why they need the "exec" classifier on their own poms).
+                     Everything each of them needs at runtime (Spring MVC, JPA, Mongo, ActiveMQ,
+                     Eureka client, JJWT, ...) rides along transitively, at "test" scope, because
+                     these dependencies are declared at "test" scope here.  -->
+        <dependency>
+            <groupId>com.gym</groupId>
+            <artifactId>gym-crm</artifactId>
+            <version>${gym-crm.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.gym</groupId>
+            <artifactId>trainer-workload-service</artifactId>
+            <version>${trainer-workload-service.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--  gym-crm only declares H2 at its OWN test scope, which is not transitive to us, so it
+                     has to be redeclared here - it's how gym-crm's "test" profile runs against an
+                     in-memory database inside this harness.  -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--  Harness dependencies  -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>${awaitility.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--  Used to mint the internal service-to-service JWT ("caller=gym-crm") that
+                     trainer-workload-service's REST API requires, exactly like gym-crm itself never
+                     needs to (gym-crm never calls that API directly).  -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--  Testcontainers: one ActiveMQ broker shared by both apps, one MongoDB used only by
+                     trainer-workload-service. gym-crm uses its own H2 in-memory database, not a
+                     container.  -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>activemq</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--  Cucumber BDD, driven through JUnit Platform (same version as gym-crm/
+                     trainer-workload-service). cucumber-picocontainer gives constructor-injection
+                     DI between glue classes without needing a Spring test context for the harness
+                     itself - the harness boots the two real Spring Boot apps by hand instead
+                     (see IntegrationTestEnvironment).  -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-picocontainer</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit-platform-engine</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>integration-tests</finalName>
+        <plugins>
+            <!--  This module has no main sources and produces no artifact worth installing/deploying
+                         (see maven.install.skip/maven.deploy.skip above) - it only runs Cucumber
+                         integration tests.  -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/RunCucumberIT.java</include>
+                    </includes>
+                    <!--  The two Spring Boot apps + Testcontainers containers are started once,
+                                 lazily, by the first Cucumber @BeforeAll hook and torn down by @AfterAll
+                                 in the same JVM, so the whole suite must run fork-per-suite, not
+                                 fork-per-class/method.  -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>integration-test</id>
+                        <goals>
+                            <goal>integration-test</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>verify</id>
+                        <goals>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
