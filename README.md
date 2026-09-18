@@ -11,7 +11,6 @@ gym-crm's source, and no reference to trainer-workload-service's host/port outsi
 ## Module layout
 
 ```
-Epam/
 ├── discovery-service/
 ├── gym-crm/                        (pom.xml: spring-boot-maven-plugin now uses classifier="exec")
 ├── trainer-workload-service/       (pom.xml: spring-boot-maven-plugin now uses classifier="exec")
@@ -45,7 +44,6 @@ documented build order is the smaller, less invasive change.
 dependencies, so they must be installed to the local repository first:
 
 ```bash
-cd Epam
 mvn -f gym-crm/pom.xml install -DskipTests
 mvn -f trainer-workload-service/pom.xml install -DskipTests
 mvn -f integration-tests/pom.xml verify
